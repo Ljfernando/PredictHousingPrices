@@ -9,6 +9,7 @@
 <meta name="generator" content="pandoc" />
 
 
+<meta name="author" content="Lance J. Fernando" />
 
 
 <title>Predicting Housing Prices in Ames, Iowa</title>
@@ -115,21 +116,20 @@ $(document).ready(function () {
 
 
 <h1 class="title toc-ignore">Predicting Housing Prices in Ames, Iowa</h1>
+<h4 class="author"><em>Lance J. Fernando</em></h4>
 
 </div>
 
 
-<div id="author-lance-jonaven-fernando" class="section level6">
-<h6>author: Lance Jonaven Fernando</h6>
 <p>This Dataset was initially compiled together by Dr. Dean De Cock at Truman State University. It consists of 79 different variables for almost 3000 different houses sold in Ames, Iowa between 2006-2010. The feature variables for each house observation include quantitative and qualitative(nominal and ordinal) values. We will be using these variables to predict the <strong>SalePrice</strong> of the given house using Regression techniques.</p>
 <hr />
 <p>In this analysis we will be using <em>Mice</em> (Multivariate Imputation by Chained Equations) in order to fill in the various NA values before running any models. Then we will use <em>moments</em> in order to calculate the skewness of particular variables. Finally, we will utilize <em>GBM</em> (Generalized Boosted Regression) in order to create a statistical model to predict the <strong>SalePrice</strong></p>
 <pre class="r"><code>library(gbm)
 library(mice)
 library(moments)
-train &lt;- read.csv(&quot;/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/train.csv&quot;, header = TRUE)
-test &lt;- read.csv(&quot;/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/test.csv&quot;, header = TRUE)</code></pre>
-</div>
+train &lt;- read.csv(&quot;/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/Data/train.csv&quot;, header = TRUE)
+test &lt;- read.csv(&quot;/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/Data/test.csv&quot;, header = TRUE)
+head(train)</code></pre>
 <div id="data-preprocessing" class="section level3">
 <h3>Data Preprocessing</h3>
 <p>Before creating any plots or conducting analysis, it is important to understand the dataset you are working with and what the variables mean.</p>
