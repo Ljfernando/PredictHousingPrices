@@ -1,0 +1,546 @@
+---
+title: "Predicting Housing Prices in Ames, Iowa"
+output: html_document
+---
+######author: Lance Jonaven Fernando
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This Dataset was initially compiled together by Dr. Dean De Cock at Truman State University. It consists of 79 different variables for almost 3000 different houses sold in Ames, Iowa between 2006-2010. The feature variables for each house observation include quantitative and qualitative(nominal and ordinal) values. We will be using these variables to predict the **SalePrice** of the given house using Regression techniques.
+
+***
+In this analysis we will be using *Mice* (Multivariate Imputation by Chained Equations) in order to fill in the various NA values before running any models. Then we will use *moments* in order to calculate the skewness of particular variables. Finally, we will utilize *GBM* (Generalized Boosted Regression) in order to create a statistical model to predict the **SalePrice**
+```{r, results='hide', message=FALSE}
+library(gbm)
+library(mice)
+library(moments)
+train <- read.csv("/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/train.csv", header = TRUE)
+test <- read.csv("/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/test.csv", header = TRUE)
+```
+
+###Data Preprocessing
+Before creating any plots or conducting analysis, it is important to understand the dataset you are working with and what the variables mean.
+
+I've created a quick function that will check for the amount of NA values and their proportion in each of our datasets. Lets call it and analyze before any preprocessing.
+
+```{r}
+checkNA <- function(tr, te){
+  for(i in colnames(tr)){
+    percentage <- 0
+    
+    na.exist <- FALSE
+    if(anyNA(tr[,i])){
+      print(paste("Train: ", i, "; ", length(which(is.na(tr[,i])))))
+      percentage <- percentage + length(which(is.na(tr[,i])))
+      na.exist <- TRUE
+    }
+    if(i %in% colnames(te)){
+      if(anyNA(te[,i])){
+        print(paste("Test: ", i, "; ", length(which(is.na(te[,i])))))
+        percentage <- percentage + length(which(is.na(te[,i])))
+        na.exist <- TRUE
+      }
+    }
+    
+    if(na.exist){
+      print(percentage / (nrow(tr) + nrow(te)))
+      print("#######################")
+    }
+  }
+  print("Checking NA process completed.")
+}
+
+checkNA(train,test)
+```
+
+Now lets get to the preprocessing!
+
+Looking through the 'data_description.txt' file provided, some variables have string values that have an ordering (i.e, **ExterQual** : 'poor', 'fair',...'excellent'). For these variables, lets change them to ordinal values starting from 1 up. For variables like **PoolQC** that are ordinal and contain missing (NA) values, we will encode a 0 since to indicate there is no pool.  For other variables like **Alley** that are categorical strings, we will encode a "No" to indicate there is no alley. Here are some examples of how this will be done. The rest will all be behind the scenes since the code is a bit lengthy.
+
+```{r}
+train$LotShape <- as.character(train$LotShape)
+test$LotShape <- as.character(test$LotShape)
+train$LotShape[which(train$LotShape == "IR3")] <- "1"
+train$LotShape[which(train$LotShape == "IR2")] <- "2"
+train$LotShape[which(train$LotShape == "IR1")] <- "3"
+train$LotShape[which(train$LotShape == "Reg")] <- "4"
+test$LotShape[which(test$LotShape == "IR3")] <- "1"
+test$LotShape[which(test$LotShape == "IR2")] <- "2"
+test$LotShape[which(test$LotShape == "IR1")] <- "3"
+test$LotShape[which(test$LotShape == "Reg")] <- "4"
+train$LotShape <- as.numeric(train$LotShape)
+test$LotShape <- as.numeric(test$LotShape)
+```
+
+```{r, echo = FALSE}
+train$LandSlope <- as.character(train$LandSlope)
+test$LandSlope <- as.character(test$LandSlope)
+train$LandSlope[which(train$LandSlope == "Sev")] <- "1"
+train$LandSlope[which(train$LandSlope == "Mod")] <- "2"
+train$LandSlope[which(train$LandSlope == "Gtl")] <- "3"
+test$LandSlope[which(test$LandSlope == "Sev")] <- "1"
+test$LandSlope[which(test$LandSlope == "Mod")] <- "2"
+test$LandSlope[which(test$LandSlope == "Gtl")] <- "3"
+train$LandSlope <- as.numeric(train$LandSlope)
+test$LandSlope <- as.numeric(test$LandSlope)
+
+train$ExterCond <- as.character(train$ExterCond)
+test$ExterCond <- as.character(test$ExterCond)
+train$ExterCond[which(train$ExterCond == "Po")] <- "1"
+train$ExterCond[which(train$ExterCond == "Fa")] <- "2"
+train$ExterCond[which(train$ExterCond == "TA")] <- "3"
+train$ExterCond[which(train$ExterCond == "Gd")] <- "4"
+train$ExterCond[which(train$ExterCond == "Ex")] <- "5"
+test$ExterCond[which(test$ExterCond == "Po")] <- "1"
+test$ExterCond[which(test$ExterCond == "Fa")] <- "2"
+test$ExterCond[which(test$ExterCond == "TA")] <- "3"
+test$ExterCond[which(test$ExterCond == "Gd")] <- "4"
+test$ExterCond[which(test$ExterCond == "Ex")] <- "5"
+train$ExterCond <- as.numeric(train$ExterCond)
+test$ExterCond <- as.numeric(test$ExterCond)
+
+train$BsmtQual <- as.character(train$BsmtQual)
+test$BsmtQual <- as.character(test$BsmtQual)
+train$BsmtQual[which(is.na(train$BsmtQual))] <- "0"
+train$BsmtQual[which(train$BsmtQual == "Po")] <- "1"
+train$BsmtQual[which(train$BsmtQual == "Fa")] <- "2"
+train$BsmtQual[which(train$BsmtQual == "TA")] <- "3"
+train$BsmtQual[which(train$BsmtQual == "Gd")] <- "4"
+train$BsmtQual[which(train$BsmtQual == "Ex")] <- "5"
+test$BsmtQual[which(is.na(test$BsmtQual))] <- "0"
+test$BsmtQual[which(test$BsmtQual == "Po")] <- "1"
+test$BsmtQual[which(test$BsmtQual == "Fa")] <- "2"
+test$BsmtQual[which(test$BsmtQual == "TA")] <- "3"
+test$BsmtQual[which(test$BsmtQual == "Gd")] <- "4"
+test$BsmtQual[which(test$BsmtQual == "Ex")] <- "5"
+train$BsmtQual <- as.numeric(train$BsmtQual)
+test$BsmtQual <- as.numeric(test$BsmtQual)
+
+train$BsmtCond <- as.character(train$BsmtCond)
+test$BsmtCond <- as.character(test$BsmtCond)
+train$BsmtCond[which(is.na(train$BsmtCond))] <- "0"
+train$BsmtCond[which(train$BsmtCond == "Po")] <- "1"
+train$BsmtCond[which(train$BsmtCond == "Fa")] <- "2"
+train$BsmtCond[which(train$BsmtCond == "TA")] <- "3"
+train$BsmtCond[which(train$BsmtCond == "Gd")] <- "4"
+train$BsmtCond[which(train$BsmtCond == "Ex")] <- "5"
+test$BsmtCond[which(is.na(test$BsmtCond))] <- "0"
+test$BsmtCond[which(test$BsmtCond == "Po")] <- "1"
+test$BsmtCond[which(test$BsmtCond == "Fa")] <- "2"
+test$BsmtCond[which(test$BsmtCond == "TA")] <- "3"
+test$BsmtCond[which(test$BsmtCond == "Gd")] <- "4"
+test$BsmtCond[which(test$BsmtCond == "Ex")] <- "5"
+train$BsmtCond <- as.numeric(train$BsmtCond)
+test$BsmtCond <- as.numeric(test$BsmtCond)
+
+
+train$BsmtExposure <- as.character(train$BsmtExposure)
+test$BsmtExposure <- as.character(test$BsmtExposure)
+train$BsmtExposure[which(is.na(train$BsmtExposure))] <- "0"
+train$BsmtExposure[which(train$BsmtExposure == "No")] <- "1"
+train$BsmtExposure[which(train$BsmtExposure == "Mn")] <- "2"
+train$BsmtExposure[which(train$BsmtExposure == "Av")] <- "3"
+train$BsmtExposure[which(train$BsmtExposure == "Gd")] <- "4"
+test$BsmtExposure[which(is.na(test$BsmtExposure))] <- "0"
+test$BsmtExposure[which(test$BsmtExposure == "No")] <- "1"
+test$BsmtExposure[which(test$BsmtExposure == "Mn")] <- "2"
+test$BsmtExposure[which(test$BsmtExposure == "Av")] <- "3"
+test$BsmtExposure[which(test$BsmtExposure == "Gd")] <- "4"
+train$BsmtExposure <- as.numeric(train$BsmtExposure)
+test$BsmtExposure <- as.numeric(test$BsmtExposure)
+
+train$BsmtFinType1 <- as.character(train$BsmtFinType1)
+test$BsmtFinType1 <- as.character(test$BsmtFinType1)
+train$BsmtFinType1[which(is.na(train$BsmtFinType1))] <- "0"
+train$BsmtFinType1[which(train$BsmtFinType1 == "Unf")] <- "1"
+train$BsmtFinType1[which(train$BsmtFinType1 == "LwQ")] <- "2"
+train$BsmtFinType1[which(train$BsmtFinType1 == "Rec")] <- "3"
+train$BsmtFinType1[which(train$BsmtFinType1 == "BLQ")] <- "4"
+train$BsmtFinType1[which(train$BsmtFinType1 == "ALQ")] <- "5"
+train$BsmtFinType1[which(train$BsmtFinType1 == "GLQ")] <- "6"
+test$BsmtFinType1[which(is.na(test$BsmtFinType1))] <- "0"
+test$BsmtFinType1[which(test$BsmtFinType1 == "Unf")] <- "1"
+test$BsmtFinType1[which(test$BsmtFinType1 == "LwQ")] <- "2"
+test$BsmtFinType1[which(test$BsmtFinType1 == "Rec")] <- "3"
+test$BsmtFinType1[which(test$BsmtFinType1 == "BLQ")] <- "4"
+test$BsmtFinType1[which(test$BsmtFinType1 == "ALQ")] <- "5"
+test$BsmtFinType1[which(test$BsmtFinType1 == "GLQ")] <- "6"
+train$BsmtFinType1 <- as.numeric(train$BsmtFinType1)
+test$BsmtFinType1 <- as.numeric(test$BsmtFinType1)
+
+train$BsmtFinType2 <- as.character(train$BsmtFinType2)
+test$BsmtFinType2 <- as.character(test$BsmtFinType2)
+train$BsmtFinType2[which(is.na(train$BsmtFinType2))] <- "0"
+train$BsmtFinType2[which(train$BsmtFinType2 == "Unf")] <- "1"
+train$BsmtFinType2[which(train$BsmtFinType2 == "LwQ")] <- "2"
+train$BsmtFinType2[which(train$BsmtFinType2 == "Rec")] <- "3"
+train$BsmtFinType2[which(train$BsmtFinType2 == "BLQ")] <- "4"
+train$BsmtFinType2[which(train$BsmtFinType2 == "ALQ")] <- "5"
+train$BsmtFinType2[which(train$BsmtFinType2 == "GLQ")] <- "6"
+test$BsmtFinType2[which(is.na(test$BsmtFinType2))] <- "0"
+test$BsmtFinType2[which(test$BsmtFinType2 == "Unf")] <- "1"
+test$BsmtFinType2[which(test$BsmtFinType2 == "LwQ")] <- "2"
+test$BsmtFinType2[which(test$BsmtFinType2 == "Rec")] <- "3"
+test$BsmtFinType2[which(test$BsmtFinType2 == "BLQ")] <- "4"
+test$BsmtFinType2[which(test$BsmtFinType2 == "ALQ")] <- "5"
+test$BsmtFinType2[which(test$BsmtFinType2 == "GLQ")] <- "6"
+train$BsmtFinType2 <- as.numeric(train$BsmtFinType2)
+test$BsmtFinType2 <- as.numeric(test$BsmtFinType2)
+
+train$KitchenQual <- as.character(train$KitchenQual)
+test$KitchenQual <- as.character(test$KitchenQual)
+train$KitchenQual[which(train$KitchenQual == "Po")] <- "1"
+train$KitchenQual[which(train$KitchenQual == "Fa")] <- "2"
+train$KitchenQual[which(train$KitchenQual == "TA")] <- "3"
+train$KitchenQual[which(train$KitchenQual == "Gd")] <- "4"
+train$KitchenQual[which(train$KitchenQual == "Ex")] <- "5"
+test$KitchenQual[which(test$KitchenQual == "Po")] <- "1"
+test$KitchenQual[which(test$KitchenQual == "Fa")] <- "2"
+test$KitchenQual[which(test$KitchenQual == "TA")] <- "3"
+test$KitchenQual[which(test$KitchenQual == "Gd")] <- "4"
+test$KitchenQual[which(test$KitchenQual == "Ex")] <- "5"
+train$KitchenQual <- as.numeric(train$KitchenQual)
+test$KitchenQual <- as.numeric(test$KitchenQual)
+
+train$GarageFinish <- as.character(train$GarageFinish)
+test$GarageFinish <- as.character(test$GarageFinish)
+train$GarageFinish[which(is.na(train$GarageFinish))] <- "0"
+train$GarageFinish[which(train$GarageFinish == "Unf")] <- "1"
+train$GarageFinish[which(train$GarageFinish == "RFn")] <- "2"
+train$GarageFinish[which(train$GarageFinish == "Fin")] <- "3"
+test$GarageFinish[which(is.na(test$GarageFinish))] <- "0"
+test$GarageFinish[which(test$GarageFinish == "Unf")] <- "1"
+test$GarageFinish[which(test$GarageFinish == "RFn")] <- "2"
+test$GarageFinish[which(test$GarageFinish == "Fin")] <- "3"
+train$GarageFinish <- as.numeric(train$GarageFinish)
+test$GarageFinish <- as.numeric(test$GarageFinish)
+
+train$GarageQual <- as.character(train$GarageQual)
+test$GarageQual <- as.character(test$GarageQual)
+train$GarageQual[which(is.na(train$GarageQual))] <- "0"
+train$GarageQual[which(train$GarageQual == "Po")] <- "1"
+train$GarageQual[which(train$GarageQual == "Fa")] <- "2"
+train$GarageQual[which(train$GarageQual == "TA")] <- "3"
+train$GarageQual[which(train$GarageQual == "Gd")] <- "4"
+train$GarageQual[which(train$GarageQual == "Ex")] <- "5"
+test$GarageQual[which(is.na(test$GarageQual))] <- "0"
+test$GarageQual[which(test$GarageQual == "Po")] <- "1"
+test$GarageQual[which(test$GarageQual == "Fa")] <- "2"
+test$GarageQual[which(test$GarageQual == "TA")] <- "3"
+test$GarageQual[which(test$GarageQual == "Gd")] <- "4"
+test$GarageQual[which(test$GarageQual == "Ex")] <- "5"
+train$GarageQual <- as.numeric(train$GarageQual)
+test$GarageQual <- as.numeric(test$GarageQual)
+
+train$GarageCond <- as.character(train$GarageCond)
+test$GarageCond <- as.character(test$GarageCond)
+train$GarageCond[which(is.na(train$GarageCond))] <- "0"
+train$GarageCond[which(train$GarageCond == "Po")] <- "1"
+train$GarageCond[which(train$GarageCond == "Fa")] <- "2"
+train$GarageCond[which(train$GarageCond == "TA")] <- "3"
+train$GarageCond[which(train$GarageCond == "Gd")] <- "4"
+train$GarageCond[which(train$GarageCond == "Ex")] <- "5"
+test$GarageCond[which(is.na(test$GarageCond))] <- "0"
+test$GarageCond[which(test$GarageCond == "Po")] <- "1"
+test$GarageCond[which(test$GarageCond == "Fa")] <- "2"
+test$GarageCond[which(test$GarageCond == "TA")] <- "3"
+test$GarageCond[which(test$GarageCond == "Gd")] <- "4"
+test$GarageCond[which(test$GarageCond == "Ex")] <- "5"
+train$GarageCond <- as.numeric(train$GarageCond)
+test$GarageCond <- as.numeric(test$GarageCond)
+
+train$GarageYrBlt[which(is.na(train$GarageYrBlt))] <- 0
+test$GarageYrBlt[which(is.na(test$GarageYrBlt))] <- 0
+
+train$GarageArea[which(is.na(train$GarageArea))] <- 0
+test$GarageArea[which(is.na(test$GarageArea))] <- 0
+
+train$GarageCars[which(is.na(train$GarageCars))] <- 0
+test$GarageCars[which(is.na(test$GarageCars))] <- 0
+
+train$GarageType <- as.character(train$GarageType)
+test$GarageType <- as.character(test$GarageType)
+train$GarageType[which(is.na(train$GarageType))] <- "No"
+test$GarageType[which(is.na(test$GarageType))] <- "No"
+train$GarageType <- as.factor(train$GarageType)
+test$GarageType <- as.factor(test$GarageType)
+
+train$PoolQC <- as.character(train$PoolQC)
+test$PoolQC <- as.character(test$PoolQC)
+train$PoolQC[which(is.na(train$PoolQC))] <- "0"
+train$PoolQC[which(train$PoolQC == "Fa")] <- "1"
+train$PoolQC[which(train$PoolQC == "TA")] <- "2"
+train$PoolQC[which(train$PoolQC == "Gd")] <- "3"
+train$PoolQC[which(train$PoolQC == "Ex")] <- "4"
+test$PoolQC[which(is.na(test$PoolQC))] <- "0"
+test$PoolQC[which(test$PoolQC == "Fa")] <- "1"
+test$PoolQC[which(test$PoolQC == "TA")] <- "2"
+test$PoolQC[which(test$PoolQC == "Gd")] <- "3"
+test$PoolQC[which(test$PoolQC == "Ex")] <- "4"
+train$PoolQC <- as.numeric(train$PoolQC)
+test$PoolQC <- as.numeric(test$PoolQC)
+
+train$FireplaceQu <- as.character(train$FireplaceQu)
+test$FireplaceQu <- as.character(test$FireplaceQu)
+train$FireplaceQu[which(is.na(train$FireplaceQu))] <- "0"
+train$FireplaceQu[which(train$FireplaceQu == "Po")] <- "1"
+train$FireplaceQu[which(train$FireplaceQu == "Fa")] <- "2"
+train$FireplaceQu[which(train$FireplaceQu == "TA")] <- "3"
+train$FireplaceQu[which(train$FireplaceQu == "Gd")] <- "4"
+train$FireplaceQu[which(train$FireplaceQu == "Ex")] <- "5"
+test$FireplaceQu[which(is.na(test$FireplaceQu))] <- "0"
+test$FireplaceQu[which(test$FireplaceQu == "Po")] <- "1"
+test$FireplaceQu[which(test$FireplaceQu == "Fa")] <- "2"
+test$FireplaceQu[which(test$FireplaceQu == "TA")] <- "3"
+test$FireplaceQu[which(test$FireplaceQu == "Gd")] <- "4"
+test$FireplaceQu[which(test$FireplaceQu == "Ex")] <- "5"
+train$FireplaceQu <- as.numeric(train$FireplaceQu)
+test$FireplaceQu <- as.numeric(test$FireplaceQu)
+
+train$MiscFeature <- as.character(train$MiscFeature)
+test$MiscFeature <- as.character(test$MiscFeature)
+train$MiscFeature[which(is.na(train$MiscFeature))] <- "No"
+test$MiscFeature[which(is.na(test$MiscFeature))] <- "No"
+train$MiscFeature <- as.factor(train$MiscFeature)
+test$MiscFeature <- as.factor(test$MiscFeature)
+
+train$Alley <- as.character(train$Alley)
+test$Alley <- as.character(test$Alley)
+train$Alley[which(is.na(train$Alley))] <- "No"
+test$Alley[which(is.na(test$Alley))] <- "No"
+train$Alley <- as.factor(train$Alley)
+test$Alley <- as.factor(test$Alley)
+
+train$Fence <- as.character(train$Fence)
+test$Fence <- as.character(test$Fence)
+train$Fence[which(is.na(train$Fence))] <- "No"
+test$Fence[which(is.na(test$Fence))] <- "No"
+train$Fence <- as.factor(train$Fence)
+test$Fence <- as.factor(test$Fence)
+```
+
+Take a look at the new output from the checkNA() function! So much different right?
+
+```{r, echo = FALSE}
+checkNA(train,test)
+```
+
+
+Now some numeric variables must be converted into factor form since they must be characterized as categorical. In addition, the creator of the dataset suggests we should drop observations whose **GrLivArea** is greater than 4000. [reference](http://ww2.amstat.org/publications/jse/v19n3/decock.pdf)
+
+```{r}
+train$MSSubClass <- factor(train$MSSubClass)
+test$MSSubClass <- factor(test$MSSubClass)
+
+train$YrSold <- factor(train$YrSold)
+test$YrSold <- factor(test$YrSold)
+
+train$MoSold <- factor(train$MoSold)
+test$MoSold <- factor(test$MoSold)
+
+train <- train[-which(train$GrLivArea > 4000),]
+```
+
+***
+###Data Imputation Using MICE
+
+Before imputing values, look again at the output of the checkNA() function. I explicitly provided the percentage of missing values proportional to the number of observations because this is important in imputing values.  There are two types of missing values: MCAR and MNAR.
+
+* MCAR (Missing Completely At Random)  
+* MNAR(Missing Not At Random)  
+
+The values that we fixed above were considered MNAR and we fixed that! Now there are a few values that are MNAR and we will fix those now.  A good threshold to go by is to only impute values where the number of missing values is under *5%*. Therefore we are going to drop **LotFrontage**. Lets go ahead and drop **Id** and **Utilities** since Id will not effect pricing and almost all values fall under 'AllPub' in Utilities. Check out the table to see how many values fall under 'AllPub' in **Utilities**
+
+```{r}
+table(train$Utilities)
+drop <- c("LotFrontage", "Id", "Utilities")
+train <- train[,!names(train) %in% drop]
+test <- test[,!names(test) %in% drop]
+```
+
+Now lets get into the imputation! We will be using the simple mice() function to impute values. The parameters used are as follows: 
+
+* m : number of different datasets to produce with new imputed values
+* method : the type of method used to predict missing values
+* maxit : number of iterations 
+* seed : to replicate process
+* printFlag : prints process to console
+
+We will be using randomForests ('rf') and 5 iterations to impute the missing values.
+
+In order for mice to use randomForests on numeric ordinal variables with less than 5 levels like **BsmtFullBath**, we must convert it first to a factor.
+
+After creating the datasets, we will rename our train and testing set to new.Train and new.Test respectively. Then we convert those factor variables back to numeric.
+Take a look at the output of checkNA() now. 
+
+Now that we no longer have anymore missing values we're good to go!
+```{r, warning = FALSE, message=FALSE}
+impute.train <- mice(data = train,
+                     m = 1,
+                     method = "rf",
+                     maxit = 20,
+                     seed = 1,
+                     printFlag = FALSE)
+
+impute.test <- mice(data = test,
+                    m = 1,
+                    method = "rf",
+                    maxit = 20,
+                    seed = 1,
+                    printFlag = FALSE)
+
+new.Train <- complete(impute.train, 1)
+
+new.Test <- complete(impute.test, 1)
+
+checkNA(new.Train, new.Test)
+```
+
+***
+###Data Transformation
+
+When working with skewed data in the supervised regression setting it is necessary to conduct feature transformation to improve interpretability in analysis and linearity in the model. We will be conducting *Log Transformations* on the skewed independent variables.
+
+First lets calculate the skewness of each variable.
+
+* A variable is considered 'highly skewed' if its absolute value is greater than 1.
+* A variable is considered 'moderately' if its absolute value is greater than 0.5.
+
+
+We will only transform variables that are 'moderate' to 'highly' skewed. We will also only transform non-categorical variables.
+```{r}
+skewedVars <- NA
+
+for(i in names(new.Train)){
+  if(is.numeric(new.Train[,i])){
+    if(i != "SalePrice"){
+      if(length(levels(as.factor(new.Train[,i]))) > 10){
+        # Enters this block if variable is non-categorical
+        skewVal <- skewness(new.Train[,i])
+        print(paste(i, skewVal, sep = ": "))
+        if(abs(skewVal) > 0.5){
+          skewedVars <- c(skewedVars, i)
+        }
+      }
+    }
+  }
+}
+```
+
+```{r, echo = FALSE}
+skewedVars <- skewedVars[-1]
+```
+Check out the plots of variables before and after transformation.
+```{r, echo = FALSE}
+par(mfrow = c(3,2))
+for(i in c(1,3,10)){
+  plot(density(new.Train[,skewedVars[i]]), main = skewedVars[i])
+  plot(density(log(new.Train[,skewedVars[i]])), main = paste("Log(", skewedVars[i], ")", sep = ""))
+}
+```
+
+
+Now lets perform transformations. We will also be creating new variables that indicate whether or not the value was greater than 0. We will do this because log(0) = -inf.
+
+**skewedWith0** is a vector of variables that are as it says. 
+
+Our new training and testing sets will be log.train and log.test respectively.
+
+```{r}
+skewedWith0 <- c("MiscVal",
+                 "EnclosedPorch",
+                 "OpenPorchSF",
+                 "WoodDeckSF",
+                 "TotalBsmtSF",
+                 "BsmtUnfSF",
+                 "BsmtFinSF2",
+                 "BsmtFinSF1",
+                 "MasVnrArea")
+
+log.train <- new.Train
+log.test <- new.Test
+
+for(i in skewedVars){
+  log.train[,i] <- log(1+new.Train[,i])
+  log.test[,i] <- log(1+new.Test[,i])
+
+}
+
+for(i in skewedVars){
+  if(i %in% skewedWith0){
+    dummyVector <- ifelse(log.train[,i] > 0, 1, 0)
+    log.train <- data.frame(log.train, factor(dummyVector))
+    colnames(log.train)[ncol(log.train)] <- paste(i, "ZERO", sep="")
+
+    dummyVector <- ifelse(log.test[,i] > 0, 1, 0)
+    log.test <- data.frame(log.test, factor(dummyVector))
+    colnames(log.test)[ncol(log.test)] <- paste(i, "ZERO", sep="")
+  }
+}
+
+```
+
+***
+###Data Modeling
+
+We have made it to the modeling stage!
+
+We will utilize Generalized Boosted Modeling. The parameters involved are as follows.
+
+* distribution : The type of method for distribution
+    + "gaussian" is used for regression modeling
+    + "bernoulli" is used for binary categorical modeling
+    + "multinomial" is used for multi-class categorical modeling
+  etc.
+* depth : Maximum depth of variable interaction
+* n.trees : Number of trees to fit
+* shrinkage : Learning rate applied to each tree in expansion
+other parameters will work fine as their default values.
+    + A smaller value makes the model more robust to overfitting.
+
+I have created a method that could easily be altered that will produce the output along with the training RMSE. This will make it easy to tune the parameters.
+```{r}
+
+runBoost <- function(trees, depth, learn, file, trainset, testset){
+  set.seed(1)
+  boost.price <- gbm(SalePrice~.,
+                     data = trainset,
+                     distribution = "gaussian",
+                     n.trees = trees,
+                     interaction.depth = depth,
+                     shrinkage = learn)
+  
+  print(summary(boost.price))
+  
+  yhat.boost <- predict(boost.price, newdata = testset,
+                        n.trees = trees)
+  
+  rmse.boost <- sqrt(mean((train$SalePrice - 
+                             predict(boost.price, newdata = trainset,
+                                     n.trees = trees))^2))
+  
+  print(paste("Training RMSE : ", rmse.boost))
+  
+  write.csv(data.frame(Id = c(1461:2919), SalePrice = yhat.boost), file, row.names = FALSE)
+}
+
+# runBoost(trees = 20000,
+#          depth = 10,
+#          learn = 0.001,
+#          file = "/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/Submission40.csv",
+#          trainset = log.train,
+#          testset = log.test)
+
+```
+
+***
+###Recap/Conclusion
+
+By getting familiar with the dataset we are using we can easily fill in many of those variables that were 'missing not at random' (MNAR). This in turn gives us a lot more data to work with. Using MICE we were able to impute values that were missing in small amounts (less than 5%). We then transformed skewed variables using log and added dummy variables for those that contained a value of 0. Finally, we fit a GBM to predict the **SalePrice** using all our variables.
+
+Submitting to the leaderboard we can land a score around the 37% spot. More feature engineering will be necessary to increase our score. With that, I will also re-tune the GBM parameters to consider the Bias-Variance tradeoff.
+
+
+
+
