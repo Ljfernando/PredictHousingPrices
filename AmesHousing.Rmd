@@ -14,7 +14,7 @@ This [dataset](http://ww2.amstat.org/publications/jse/v19n3/decock.pdf) was init
 
 ***
 In this analysis we will be using *Mice* (Multivariate Imputation by Chained Equations) in order to fill in the various NA values before running any models. Then we will use *moments* in order to calculate the skewness of particular variables. Finally, we will utilize *GBM* (Generalized Boosted Regression) in order to create a statistical model to predict the **SalePrice**
-```{r, results='hide', message=FALSE}
+```{r, results='hide', message=FALSE, warning=FALSE}
 library(gbm)
 library(mice)
 library(moments)
