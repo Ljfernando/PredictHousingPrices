@@ -1,13 +1,16 @@
 ---
 title: "Predicting Housing Prices in Ames, Iowa"
-output: html_document
----
-######author: Lance Jonaven Fernando
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
+author: Lance J. Fernando
+output:
+  html_document:
+    toc: true # table of content true
+    number_sections: true  ## if you want number sections at each table header
+    theme: cosmo  # many options for theme, this one is my favorite.
+    
 
-This Dataset was initially compiled together by Dr. Dean De Cock at Truman State University. It consists of 79 different variables for almost 3000 different houses sold in Ames, Iowa between 2006-2010. The feature variables for each house observation include quantitative and qualitative(nominal and ordinal) values. We will be using these variables to predict the **SalePrice** of the given house using Regression techniques.
+---
+
+This [dataset](http://ww2.amstat.org/publications/jse/v19n3/decock.pdf) was initially compiled together by Dr. Dean De Cock at Truman State University. It consists of 79 different variables for almost 3000 different houses sold in Ames, Iowa between 2006-2010. The feature variables for each house observation include quantitative and qualitative(nominal and ordinal) values. We will be using these variables to predict the **SalePrice** of the given house using Regression techniques.
 
 ***
 In this analysis we will be using *Mice* (Multivariate Imputation by Chained Equations) in order to fill in the various NA values before running any models. Then we will use *moments* in order to calculate the skewness of particular variables. Finally, we will utilize *GBM* (Generalized Boosted Regression) in order to create a statistical model to predict the **SalePrice**
@@ -15,43 +18,63 @@ In this analysis we will be using *Mice* (Multivariate Imputation by Chained Equ
 library(gbm)
 library(mice)
 library(moments)
-train <- read.csv("/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/train.csv", header = TRUE)
-test <- read.csv("/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/test.csv", header = TRUE)
+library(ggplot2)
+
+train <- read.csv("/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/Data/train.csv", header = TRUE)
+test <- read.csv("/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/Data/test.csv", header = TRUE)
+head(train)
 ```
 
-###Data Preprocessing
+#Data Preprocessing
 Before creating any plots or conducting analysis, it is important to understand the dataset you are working with and what the variables mean.
 
 I've created a quick function that will check for the amount of NA values and their proportion in each of our datasets. Lets call it and analyze before any preprocessing.
 
-```{r}
-checkNA <- function(tr, te){
-  for(i in colnames(tr)){
-    percentage <- 0
-    
-    na.exist <- FALSE
+```{r, warning=FALSE}
+checkNAplot <- function(tr, te){
+  
+  library(ggplot2)
+  vars <- ""
+  perc <- 0
+  type <- ""
+
+  for(i in 1: ncol(te)){
     if(anyNA(tr[,i])){
-      print(paste("Train: ", i, "; ", length(which(is.na(tr[,i])))))
-      percentage <- percentage + length(which(is.na(tr[,i])))
-      na.exist <- TRUE
+      vars <- c(vars, names(tr)[i])
+      type <- c(type, "train")
+      perc <- c(perc, length(which(is.na(tr[,i]))) / (nrow(tr) + nrow(te)))
+      
     }
-    if(i %in% colnames(te)){
-      if(anyNA(te[,i])){
-        print(paste("Test: ", i, "; ", length(which(is.na(te[,i])))))
-        percentage <- percentage + length(which(is.na(te[,i])))
-        na.exist <- TRUE
-      }
-    }
-    
-    if(na.exist){
-      print(percentage / (nrow(tr) + nrow(te)))
-      print("#######################")
+    if(anyNA(te[,i])){
+      vars <- c(vars, names(te)[i])
+      type <- c(type, "test")
+      perc <- c(perc, length(which(is.na(te[,i]))) / (nrow(tr) + nrow(te)))
+      
     }
   }
-  print("Checking NA process completed.")
+  
+  if(length(vars) > 1){
+    
+    vars <- vars[-1]
+    type <- type[-1]
+    perc <- perc[-1]
+    
+    vars <- factor(vars)
+    
+    naData <- data.frame(variables = vars, type = type, percentage = perc)
+    naData$variables <- factor(naData$variables, 
+                               levels = naData$variables[order(naData$perc)])
+    plot <- ggplot(naData,
+        aes(x=variables, y=percentage, 
+            fill = type)) + geom_bar(stat = "identity") + xlab("Variable") + ylab("Percent missing") + ggtitle("Percentage of Missing Values in Training/Test Sets") + coord_flip() + geom_hline(yintercept = 0.05)
+    print("Checking NA process completed.")
+    return(plot)
+  }
+  else
+    print("Checking NA process completed.")
+    
 }
-
-checkNA(train,test)
+checkNAplot(train,test)
 ```
 
 Now lets get to the preprocessing!
@@ -322,12 +345,12 @@ test$Fence <- as.factor(test$Fence)
 
 Take a look at the new output from the checkNA() function! So much different right?
 
-```{r, echo = FALSE}
-checkNA(train,test)
+```{r, echo = FALSE, warning=FALSE}
+checkNAplot(train,test)
 ```
 
 
-Now some numeric variables must be converted into factor form since they must be characterized as categorical. In addition, the creator of the dataset suggests we should drop observations whose **GrLivArea** is greater than 4000. [reference](http://ww2.amstat.org/publications/jse/v19n3/decock.pdf)
+Now some numeric variables must be converted into factor form since they must be characterized as categorical. In addition, the creator of the dataset suggests we should drop observations whose **GrLivArea** is greater than 4000. 
 
 ```{r}
 train$MSSubClass <- factor(train$MSSubClass)
@@ -343,7 +366,7 @@ train <- train[-which(train$GrLivArea > 4000),]
 ```
 
 ***
-###Data Imputation Using MICE
+#Data Imputation Using MICE
 
 Before imputing values, look again at the output of the checkNA() function. I explicitly provided the percentage of missing values proportional to the number of observations because this is important in imputing values.  There are two types of missing values: MCAR and MNAR.
 
@@ -379,14 +402,14 @@ Now that we no longer have anymore missing values we're good to go!
 impute.train <- mice(data = train,
                      m = 1,
                      method = "rf",
-                     maxit = 20,
+                     maxit = 1,
                      seed = 1,
                      printFlag = FALSE)
 
 impute.test <- mice(data = test,
                     m = 1,
                     method = "rf",
-                    maxit = 20,
+                    maxit = 1,
                     seed = 1,
                     printFlag = FALSE)
 
@@ -394,11 +417,11 @@ new.Train <- complete(impute.train, 1)
 
 new.Test <- complete(impute.test, 1)
 
-checkNA(new.Train, new.Test)
+checkNAplot(new.Train, new.Test)
 ```
 
 ***
-###Data Transformation
+#Data Transformation
 
 When working with skewed data in the supervised regression setting it is necessary to conduct feature transformation to improve interpretability in analysis and linearity in the model. We will be conducting *Log Transformations* on the skewed independent variables.
 
@@ -441,34 +464,30 @@ for(i in c(1,3,10)){
 ```
 
 
-Now lets perform transformations. We will also be creating new variables that indicate whether or not the value was greater than 0. We will do this because log(0) = -inf.
+Now lets perform transformations. We will also be creating new variables that indicate whether or not the value was greater than 0. We do this because having a value of 0 may prove to be significant.
 
-**skewedWith0** is a vector of variables that are as it says. 
+In addition, we perform "log(1+new.Train[,i])" because log(0) = -inf.
 
 Our new training and testing sets will be log.train and log.test respectively.
 
 ```{r}
-skewedWith0 <- c("MiscVal",
-                 "EnclosedPorch",
-                 "OpenPorchSF",
-                 "WoodDeckSF",
-                 "TotalBsmtSF",
-                 "BsmtUnfSF",
-                 "BsmtFinSF2",
-                 "BsmtFinSF1",
-                 "MasVnrArea")
 
 log.train <- new.Train
 log.test <- new.Test
 
 for(i in skewedVars){
-  log.train[,i] <- log(1+new.Train[,i])
-  log.test[,i] <- log(1+new.Test[,i])
-
+  if(0 %in% new.Train[, i]){
+    log.train[,i] <- log(1+new.Train[,i])
+    log.test[,i] <- log(1+new.Test[,i])
+  }
+  else{
+    log.train[,i] <- log(new.Train[,i])
+    log.test[,i] <- log(new.Test[,i])
+  }
 }
 
 for(i in skewedVars){
-  if(i %in% skewedWith0){
+  if(0 %in% new.Train[, i]){
     dummyVector <- ifelse(log.train[,i] > 0, 1, 0)
     log.train <- data.frame(log.train, factor(dummyVector))
     colnames(log.train)[ncol(log.train)] <- paste(i, "ZERO", sep="")
@@ -482,7 +501,7 @@ for(i in skewedVars){
 ```
 
 ***
-###Data Modeling
+#Data Modeling
 
 We have made it to the modeling stage!
 
@@ -528,14 +547,14 @@ runBoost <- function(trees, depth, learn, file, trainset, testset){
 # runBoost(trees = 20000,
 #          depth = 10,
 #          learn = 0.001,
-#          file = "/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/Submission40.csv",
+#          file = "/Users/lancefernando/Desktop/DataMining/RProjects/IowaHousing/Submission42.csv",
 #          trainset = log.train,
 #          testset = log.test)
 
 ```
 
 ***
-###Recap/Conclusion
+#Recap/Conclusion
 
 By getting familiar with the dataset we are using we can easily fill in many of those variables that were 'missing not at random' (MNAR). This in turn gives us a lot more data to work with. Using MICE we were able to impute values that were missing in small amounts (less than 5%). We then transformed skewed variables using log and added dummy variables for those that contained a value of 0. Finally, we fit a GBM to predict the **SalePrice** using all our variables.
 
