@@ -13,7 +13,7 @@ output:
 This [dataset](http://ww2.amstat.org/publications/jse/v19n3/decock.pdf) was initially compiled together by Dr. Dean De Cock at Truman State University. It consists of 79 different variables for almost 3000 different houses sold in Ames, Iowa between 2006-2010. The feature variables for each house observation include quantitative and qualitative(nominal and ordinal) values. We will be using these variables to predict the **SalePrice** of the given house using Regression techniques.
 
 ***
-In this analysis we will be using *Mice* (Multivariate Imputation by Chained Equations) in order to fill in the various NA values before running any models. Then we will use *moments* in order to calculate the skewness of particular variables. Finally, we will utilize *GBM* (Generalized Boosted Regression) in order to create a statistical model to predict the **SalePrice**
+In this analysis we will be using *Mice* (Multivariate Imputation by Chained Equations) in order to fill in the various NA values before running any models. Then we will use *moments* in order to calculate the skewness of particular variables. Finally, we will utilize *GBM* (Generalized Boosted Regression Models) in order to create a statistical model to predict the **SalePrice**
 ```{r, results='hide', message=FALSE, warning=FALSE}
 library(gbm)
 library(mice)
